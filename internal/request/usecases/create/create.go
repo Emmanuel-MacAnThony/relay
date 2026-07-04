@@ -46,20 +46,25 @@ func (uc *UseCase) Execute(input CreateInput) result.Result[CreateOutput] {
 	return result.Ok(CreateOutput{Request: req})
 }
 
+func buildRequest(input CreateInput) domain.Request {
+	return domain.Request{
+		Slug:        input.Slug,
+		Method:      input.Method,
+		Path:        input.Path,
+		Headers:     input.Headers,
+		QueryParams: input.QueryParams,
+		Body:        input.Body,
+		SourceIP:    input.SourceIP,
+		ReceivedAt:  time.Now().UTC(),
+		BodySize:    len(input.Body),
+	}
+}
+
 func (uc *UseCase) saveWithRetry(input CreateInput) (domain.Request, error) {
+	req := buildRequest(input)
+
 	for i := 0; i < maxIDRetries; i++ {
-		req := domain.Request{
-			ID:          uuid.NewString(),
-			Slug:        input.Slug,
-			Method:      input.Method,
-			Path:        input.Path,
-			Headers:     input.Headers,
-			QueryParams: input.QueryParams,
-			Body:        input.Body,
-			SourceIP:    input.SourceIP,
-			ReceivedAt:  time.Now().UTC(),
-			BodySize:    len(input.Body),
-		}
+		req.ID = uuid.NewString()
 
 		err := uc.repo.Save(req)
 		if err == nil {

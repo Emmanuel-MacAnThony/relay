@@ -252,3 +252,4 @@ The server never talks to your local service — only the CLI does. The server h
 - **Multi-CLI fan-out** — currently the WS hub broadcasts to all connected sessions for a slug; only one CLI should be connected at a time
 - **Payload filtering / transformation** — strip headers, rewrite body, or route to different targets based on request content
 - **Retry logic in the CLI** — if the local target is down the delivery attempt is recorded as failed; the dashboard replay button covers the manual retry case
+

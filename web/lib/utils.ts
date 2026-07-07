@@ -15,7 +15,7 @@ export function timeAgo(isoString: string | null | undefined): string {
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
-  return new Date(isoString).toLocaleDateString();
+  return new Date(isoString).toLocaleDateString("en-US");
 }
 
 export function fmtDate(isoString: string): string {

@@ -17,8 +17,8 @@ services:
 
   app:
     build: .
-    ports:
-      - "8080:8080"
+    # No host port here — Launchpad assigns the slot's host port (blue/green) via
+    # its deploy-time override. Publishing one here would collide across slots.
     environment:
       DATABASE_URL: postgres://relay:relay@db:5432/relay?sslmode=disable
       PORT: 8080

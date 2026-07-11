@@ -10,6 +10,9 @@ type RouterDeps struct {
 
 func NewRouter(deps RouterDeps) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 	deps.Request.RegisterRoutes(mux)
 	deps.Endpoint.RegisterRoutes(mux)
 	deps.WS.RegisterRoutes(mux)

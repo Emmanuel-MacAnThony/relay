@@ -46,19 +46,25 @@ After delivery the panel shows the local server response body (up to 64 KB), res
 
 ```
   Stripe / GitHub / Slack
-           │  POST /hook/{slug}
-           ▼
-  ┌────────────────────┐       WebSocket /ws/{slug}      ┌───────────────────┐
-  │   Relay Server     │ ──────────────────────────────► │   relay-cli       │
-  │   (Go / HTTP)      │ ◄────── delivery attempt ─────── │   (local machine) │
-  └────────────────────┘                                  └────────┬──────────┘
-           │                                                       │ HTTP forward
-           │ PostgreSQL                                            ▼
-  ┌────────────────────┐                               ┌───────────────────────┐
-  │   requests         │                               │  Your local server    │
-  │   delivery_attempts│                               │  http://localhost:9001│
-  └────────────────────┘                               └───────────────────────┘
+        │  ① POST /hook/{slug}
+        ▼
+  ┌────────────────────┐                                        ┌───────────────────┐
+  │                    │   ② push request  ─────────────────►   │                   │
+  │    Relay Server    │      ═══ ONE persistent WebSocket ═══   │    relay-cli      │
+  │    (Go / HTTP)     │   ◄─────────────  ⑤ delivery result    │  (local machine)  │
+  │                    │   (CLI dials it OUTBOUND — no ports)   │                   │
+  └─────────┬──────────┘                                        └─────────┬─────────┘
+            │ save + ⑥ reply to caller                           ③ forward │
+            ▼                                                              ▼
+  ┌────────────────────┐                                   ┌───────────────────────┐
+  │  PostgreSQL        │                                   │   Your local server   │
+  │  requests /        │                                   │  ④ http://localhost   │
+  │  delivery_attempts │                                   └───────────────────────┘
+  └────────────────────┘
 ```
+
+**The round trip** — both directions ride **one persistent WebSocket the CLI opened outbound**:
+① a webhook hits the public URL → ② the server pushes it *down* the socket to the CLI → ③ the CLI forwards it to your localhost → ④ your server responds → ⑤ the CLI sends the result back *up* the same socket → ⑥ the server returns it to the original caller (and saves it). That outbound, full-duplex connection is what lets public traffic reach your machine with **no open ports**.
 
 **Relay Server** — an HTTP mux that:
 1. Accepts incoming webhooks at `/hook/{slug}` and saves them (headers, body, source IP)
@@ -234,6 +240,17 @@ The CLI sends delivery results back:
 
 **Why a CLI instead of a server-side tunnel?**
 The CLI approach means zero open ports on your machine and zero NAT traversal. The relay server holds the WebSocket; the CLI opens it outbound. Your local server never sees internet traffic directly — all it sees is a local HTTP request from the CLI.
+
+**Why one bidirectional WebSocket (and why the request/response is async)**
+The same socket carries both directions: the server pushes each captured request *down* to the CLI, and the CLI sends the delivery result back *up*. It's full-duplex, so one connection does both — no second channel needed, and (unlike SSE) the response can come back the way it came.
+
+But that one connection carries *many* requests at once — a live webhook, a replay, several in flight — and their results return as independent messages, possibly out of order. So the forwarder can't just "write a request, then read its reply": the next message on the shared socket might belong to a *different* request. Instead it **multiplexes**, and this is the async part:
+
+- each `Forward` gets a **correlation ID** and its own channel, registered in a `pending` map (`id → waiting caller`);
+- a single **read-loop goroutine** reads *every* incoming result and dispatches it to the right waiter by ID;
+- the HTTP handler **blocks on its channel** until its own result arrives (or times out).
+
+Reads are serialised through the one loop (a socket can't be read by multiple goroutines); writes can be concurrent. So sending and receiving are decoupled and re-paired by ID — the standard way to run many logical request/response pairs over a single physical connection (the same multiplexing you'd build into any tunnel).
 
 **Why replay matters**
 When developing against Stripe or GitHub webhooks you can't force a re-delivery on demand — Stripe has rate limits, GitHub has retry windows, and neither lets you replay with a modified payload. Relay stores every request and lets you replay instantly from the dashboard, including after you've fixed a bug in your handler.
